@@ -151,6 +151,94 @@ describe("parseProviderOutput", () => {
     );
   });
 
+  it("extracts Muse terminal text with the usage model as proof", () => {
+    const parsed = parseProviderOutput(
+      "muse",
+      [
+        JSON.stringify({
+          stream: { kind: "session", id: "muse-session" },
+          payload_type: "run.usage",
+          payload: {
+            models: [{
+              model: "muse-spark-1.3",
+              input_tokens: 27370,
+              cached_tokens: 0,
+              output_tokens: 17,
+              reasoning_tokens: 5,
+            }],
+          },
+        }),
+        JSON.stringify({
+          stream: { kind: "session", id: "muse-session" },
+          payload_type: "run.terminal.completed",
+          payload: { terminal: "completed", text: "MUSE_OK", reason: null },
+        }),
+      ].join("\n"),
+      "",
+      "muse-spark-1.3"
+    );
+    expect(parsed).toMatchObject({
+      text: "MUSE_OK",
+      reportedModel: "muse-spark-1.3",
+      sessionId: "muse-session",
+      usage: { inputTokens: 27370, cachedInputTokens: 0, outputTokens: 17, reasoningTokens: 5 },
+      costUsd: null,
+    });
+    expect(reportedModelMatches("muse", "muse-spark-1.3", parsed.reportedModel)).toBe(true);
+    expect(reportedModelMatches("muse", "muse-spark-1.3", "muse-spark-1.3-contributor")).toBe(true);
+    expect(reportedModelMatches("muse", "muse-spark-1.3", "muse-wonder-1.0")).toBe(false);
+  });
+
+  it("reports no model for the Muse silent unknown-model fallback", () => {
+    const parsed = parseProviderOutput(
+      "muse",
+      [
+        JSON.stringify({
+          stream: { kind: "session", id: "muse-session" },
+          payload_type: "run.usage",
+          payload: { models: [] },
+        }),
+        JSON.stringify({
+          stream: { kind: "session", id: "muse-session" },
+          payload_type: "run.terminal.completed",
+          payload: { terminal: "completed", text: "Hi — how can I help?", reason: null },
+        }),
+      ].join("\n"),
+      "",
+      "nope-nope-1.0"
+    );
+    expect(parsed.reportedModel).toBeNull();
+    expect(reportedModelMatches("muse", "nope-nope-1.0", parsed.reportedModel)).toBe(false);
+  });
+
+  it("rejects Muse streams without a terminal event or final text", () => {
+    expect(() =>
+      parseProviderOutput(
+        "muse",
+        JSON.stringify({
+          stream: { kind: "session", id: "muse-session" },
+          payload_type: "run.usage",
+          payload: { models: [] },
+        }),
+        "",
+        "muse-spark-1.3"
+      )
+    ).toThrow("terminal event");
+    expect(() =>
+      parseProviderOutput(
+        "muse",
+        JSON.stringify({
+          stream: { kind: "session", id: "muse-session" },
+          payload_type: "run.terminal.completed",
+          payload: { terminal: "completed", text: "", reason: null },
+        }),
+        "",
+        "muse-spark-1.3"
+      )
+    ).toThrow("final text");
+    expect(() => parseProviderOutput("muse", "not-json", "", "muse-spark-1.3")).toThrow("non-JSON");
+  });
+
   it("verifies a valid Claude primary that reports alongside helpers", () => {
     const parsed = parseProviderOutput(
       "claude",
@@ -501,6 +589,30 @@ describe("structured provider terminal errors", () => {
         error?: { code?: string };
       };
       expect(envelope.error?.code).toBe("usage_limit_reached");
+    }
+  });
+
+  it("throws a typed terminal error carrying Muse's failed-terminal reason", async () => {
+    const { ProviderTerminalError } = await import("./provider-failure.ts");
+    try {
+      parseProviderOutput(
+        "muse",
+        JSON.stringify({
+          stream: { kind: "session", id: "muse-session" },
+          payload_type: "run.terminal.failed",
+          payload: { terminal: "failed", text: "", reason: "model `nope-1.0` does not exist or you lack access" },
+        }),
+        "",
+        "nope-1.0"
+      );
+      throw new Error("expected a throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ProviderTerminalError);
+      expect((error as Error).message).toContain("does not exist");
+      const envelope = (error as InstanceType<typeof ProviderTerminalError>).envelope as {
+        payload?: { reason?: string };
+      };
+      expect(envelope.payload?.reason).toContain("does not exist");
     }
   });
 

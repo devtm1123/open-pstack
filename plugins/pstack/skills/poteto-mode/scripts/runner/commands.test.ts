@@ -122,6 +122,47 @@ describe("invocationCommand", () => {
     ]);
   });
 
+  it("pins Muse model, effort, workspace, and read-only disables", () => {
+    const spec = invocationCommand(
+      options({ provider: "muse", model: "muse-spark-1.3", effort: "xhigh" })
+    );
+    expect(spec.command).toBe("muse");
+    expect(spec.stdin).toBe("none");
+    expect(spec.args).toEqual([
+      "exec",
+      "--json",
+      "--provider",
+      "meta",
+      "--model",
+      "muse-spark-1.3",
+      "--reasoning-effort",
+      "xhigh",
+      "--prompt-file",
+      "/tmp/prompt.md",
+      "--workspace",
+      "/tmp/worktree",
+      "--disable-write",
+      "--disable-shell",
+      "--disable-web-tools",
+      "--disable-reminders",
+      "--disable-request-user-input",
+      "--no-foreign-personal-context",
+      "--no-session-log",
+    ]);
+  });
+
+  it("keeps Muse writers on default approval and sandbox without bypasses", () => {
+    const spec = invocationCommand(
+      options({ provider: "muse", model: "muse-spark-1.3", mode: "isolated-write" })
+    );
+    expect(spec.args).not.toContain("--disable-write");
+    expect(spec.args).not.toContain("--disable-shell");
+    for (const bypass of ["--yolo", "--disable-approval", "--disable-sandbox", "--trust-workspace", "--approval-mode"]) {
+      expect(spec.args).not.toContain(bypass);
+    }
+    expect(spec.args).toEqual(expect.arrayContaining(["--workspace", "/tmp/worktree", "--provider", "meta"]));
+  });
+
   it("uses bounded write modes without blanket bypasses", () => {
     const codex = invocationCommand(options({ mode: "isolated-write" }));
     expect(codex.args).toEqual(
@@ -173,6 +214,14 @@ describe("invocationCommand", () => {
       {
         provider: "grok" as const,
         model: "grok-4.7",
+        flag: (effort: "low" | "medium" | "high") => [
+          "--reasoning-effort",
+          effort,
+        ],
+      },
+      {
+        provider: "muse" as const,
+        model: "muse-spark-1.3",
         flag: (effort: "low" | "medium" | "high") => [
           "--reasoning-effort",
           effort,
@@ -236,6 +285,38 @@ describe("invocationCommand", () => {
       const effortIndex = spec.args.indexOf(effortFlag[0]);
       expect(spec.args.slice(effortIndex, effortIndex + 2)).toEqual(effortFlag);
     }
+  });
+});
+
+describe("Muse preflight probe", () => {
+  it("probes auth and the requested model with one tiny minimal-effort call", () => {
+    expect(preflightCommand("muse", "read-only", undefined, "muse-spark-1.3")).toEqual({
+      command: "muse",
+      args: [
+        "exec",
+        "--json",
+        "--provider",
+        "meta",
+        "--model",
+        "muse-spark-1.3",
+        "--reasoning-effort",
+        "minimal",
+        "--disable-write",
+        "--disable-shell",
+        "--disable-web-tools",
+        "--disable-reminders",
+        "--disable-request-user-input",
+        "--no-foreign-personal-context",
+        "--no-session-log",
+        "Reply with exactly: OK",
+      ],
+      stdin: "none",
+    });
+    expect(preflightCommand("muse", "isolated-write", undefined, "muse-spark-1.3")?.command).toBe("muse");
+  });
+
+  it("refuses a model-less Muse probe instead of verifying a default", () => {
+    expect(() => preflightCommand("muse", "read-only")).toThrow("muse preflight requires the requested model");
   });
 });
 
@@ -304,7 +385,7 @@ describe("Claude writer sandbox profile", () => {
 describe("worker guidance paired with invocation flags", () => {
   it("returns corresponding guidance for every provider and access mode", () => {
     for (const mode of ["read-only", "isolated-write"] as const) {
-      for (const provider of ["claude", "codex", "grok", "devin", "cursor", "antigravity", "opencode"] as const) {
+      for (const provider of ["claude", "codex", "grok", "devin", "cursor", "antigravity", "opencode", "muse"] as const) {
         const spec = invocationCommand(
           options({ provider, model: "any-model", effort: "default", mode })
         );
@@ -346,7 +427,7 @@ describe("worker guidance paired with invocation flags", () => {
 
 describe("strict worker contract argv", () => {
   it("fails strict argv for every provider without a verified control", () => {
-    for (const provider of ["claude", "codex", "grok", "devin", "cursor", "antigravity", "opencode"] as const) {
+    for (const provider of ["claude", "codex", "grok", "devin", "cursor", "antigravity", "opencode", "muse"] as const) {
       expect(
         () => invocationCommand(options({ provider, mode: "isolated-write", contract: "strict" })),
         provider

@@ -17,6 +17,7 @@ import {
 import { OutputValidationError } from "./types.ts";
 import { assessCodexTranscript } from "./codex.ts";
 import { antigravityEvents, antigravitySuccessfulResult } from "./antigravity.ts";
+import { parseMuseEvents } from "./muse.ts";
 
 type JsonObject = Record<string, unknown>;
 
@@ -325,6 +326,28 @@ function parseAntigravity(stdout: string): ParsedOutput {
   };
 }
 
+function parseMuse(stdout: string, requestedModel: string): ParsedOutput {
+  const events = parseMuseEvents(stdout, requestedModel);
+  if (events === null) throw new OutputValidationError("muse emitted a non-JSON event");
+  const { terminal } = events;
+  if (terminal === null) throw new OutputValidationError("muse result did not contain a terminal event");
+  if (terminal.status !== "completed") {
+    throw new ProviderTerminalError(
+      "muse",
+      terminal.reason ?? terminal.text ?? `muse reported ${terminal.status === "" ? "an empty terminal status" : terminal.status}`,
+      { payload_type: `run.terminal.${terminal.status}`, payload: { terminal: terminal.status, text: terminal.text, reason: terminal.reason } }
+    );
+  }
+  if (terminal.text === null) throw new OutputValidationError("muse result did not contain final text");
+  return {
+    text: terminal.text,
+    reportedModel: events.usageModel,
+    sessionId: events.sessionId,
+    usage: events.usage,
+    costUsd: null,
+  };
+}
+
 export function parseProviderOutput(
   provider: Provider,
   stdout: string,
@@ -386,6 +409,8 @@ export function parseProviderOutput(
       return parseCodex(stdout);
     case "grok":
       return parseGrok(stdout, requestedModel);
+    case "muse":
+      return parseMuse(stdout, requestedModel);
   }
 }
 

@@ -2,6 +2,7 @@ import { parseOpenCodeTranscript } from "./opencode.ts";
 import type { Provider, ToolDenial } from "./types.ts";
 import { assessCodexTranscript, codexTerminalEvent, type CodexTerminal } from "./codex.ts";
 import { antigravityEvents, antigravitySuccessfulResult } from "./antigravity.ts";
+import { museTerminalCompleted } from "./muse.ts";
 
 type JsonObject = Record<string, unknown>;
 
@@ -516,6 +517,23 @@ const openCodeAdapter: QuotaAdapter = {
   succeeded(outcome) { return parseOpenCodeTranscript(outcome.stdout).kind === "complete"; },
 };
 
+// No canonical terminal quota envelope is proven for Muse: usage exhaustion
+// stays UNKNOWN until captured protocol evidence supports it. A completed
+// terminal still vetoes replay as a failure.
+const museAdapter: QuotaAdapter = {
+  classify() { return UNKNOWN; },
+  succeeded(outcome) {
+    if (outcome.terminalEnvelope !== undefined) {
+      const event = object(outcome.terminalEnvelope);
+      const payload = object(event?.payload);
+      return typeof event?.payload_type === "string"
+        && event.payload_type.startsWith("run.terminal.")
+        && payload?.terminal === "completed";
+    }
+    return museTerminalCompleted(outcome.stdout, "");
+  },
+};
+
 const QUOTA_ADAPTERS: Readonly<Record<Provider, QuotaAdapter>> = {
   claude: claudeAdapter,
   codex: codexAdapter,
@@ -524,6 +542,7 @@ const QUOTA_ADAPTERS: Readonly<Record<Provider, QuotaAdapter>> = {
   cursor: cursorAdapter,
   antigravity: antigravityAdapter,
   opencode: openCodeAdapter,
+  muse: museAdapter,
 };
 
 export class QuotaAdapterNotImplementedError extends Error {
@@ -597,6 +616,7 @@ const API_CREDENTIAL_ENV: Readonly<Record<Provider, readonly string[]>> = {
   cursor: ["CURSOR_API_KEY"],
   antigravity: ["GEMINI_API_KEY"],
   opencode: [],
+  muse: ["META_API_KEY"],
 };
 
 // Provider-selection and gateway switches: count only when set to a truthy
@@ -618,6 +638,7 @@ const API_ROUTE_ENV: Readonly<Record<Provider, readonly string[]>> = {
   cursor: ["CURSOR_API_ENDPOINT"],
   antigravity: ["GOOGLE_GEMINI_BASE_URL", "AGY_ADC_AUTH"],
   opencode: [],
+  muse: [],
 };
 
 function truthy(value: string | undefined): boolean {
@@ -686,6 +707,7 @@ export function subscriptionAuthEvidence(
     case "devin":
     case "cursor":
     case "antigravity":
+    case "muse":
       return null;
   }
 }
@@ -757,6 +779,17 @@ function terminalEnvelopeDetail(provider: Provider, envelope: unknown): JsonObje
     }
     case "devin":
       return null;
+    case "muse": {
+      if (typeof event.payload_type !== "string" || !event.payload_type.startsWith("run.terminal.")) return null;
+      const terminal = object(event.payload);
+      if (terminal === null) return null;
+      const detail: JsonObject = {};
+      const status = boundedText(terminal.terminal);
+      if (status !== null) detail.status = status;
+      const reason = boundedText(terminal.reason);
+      if (reason !== null) detail.reason = reason;
+      return Object.keys(detail).length > 0 ? detail : null;
+    }
   }
 }
 
@@ -774,6 +807,8 @@ function isTerminalEvent(provider: Provider, event: JsonObject): boolean {
       return event.type === "error";
     case "devin":
       return false;
+    case "muse":
+      return typeof event.payload_type === "string" && event.payload_type.startsWith("run.terminal.");
   }
 }
 

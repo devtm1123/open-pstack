@@ -80,6 +80,14 @@ The native configuration and event contracts were inspected in [OpenCode V2 sour
 
 Antigravity is an opt-in external worker from either parent. Install and sign in to `agy`, inspect `agy models`, and use an exact listed slug such as `antigravity:gemini-3.1-pro-high@default`. The slug already contains the available reasoning variant; the runner does not pass `--effort`, and `auto` is invalid. Hosted Claude models remain Antigravity routes for access, receipts, and exhaustion grouping. It does not change the default panel. Every Antigravity attempt requires an explicit saved `apiSpend` choice, including on legacy sheets.
 
+## Optional Muse models
+
+Muse is an opt-in external worker from either parent. Install and sign in to `muse` (`muse login`, or `META_API_KEY`, which takes priority), and use an exact model ID such as `muse:muse-spark-1.3@max`, `muse:muse-wonder-1.0@high`, or `muse:muse-wonder-full-1.0@max`. Effort uses the standard `low` through `max` levels, passed as `--reasoning-effort`. It does not change the default panel.
+
+The CLI exposes no model list, so discovery is the probe itself: the runner's preflight is one tiny `exec` call at minimal effort, and it passes only when the probe's `run.usage` event names the requested model. An unknown model either exits 0 with an empty usage model list or fails with `model ... does not exist`; both are `unavailable-model` failures. Missing credentials fail fast as `missing meta credentials` and are `unauthenticated` failures.
+
+The runner sends the rendered prompt through `--prompt-file`, pins `--model`, `--provider meta`, and `--workspace`, disables web tools, reminders, interactive input, foreign personal context, and session logging, and never passes `--trust-workspace`. Read-only lanes add `--disable-write --disable-shell`. Writers keep the default approval and sandbox, which allow headless workspace writes. Model proof comes from the `run.usage` event's model, never from `run.model.configured`, which echoes the request even for an unknown model. No canonical terminal quota envelope is proven: quota-sounding text never authorizes fallback, while a completed terminal still vetoes replay as a failure.
+
 ## Model sheet grammar
 
 The model sheet is the only persisted routing source. Each line assigns one or more role names before the first `: ` and the seat list after it. Role names themselves contain commas (`feature, refactoring`, `why investigators, synthesizer`, `reflect tooling, judgment, divergent, synthesizer`), so the header is matched against the documented role list before the right-hand side is split.
@@ -138,10 +146,10 @@ This read-time rule makes an older installed sheet use the latest family revisio
 
 The top-level harness freezes the sheet once and asks the helper for each attempt decision. A child receives an assigned provider, model, effort, access mode, prompt, working directory, and output path. A child never detects the harness, chooses a provider, or launches another model. Environment markers may corroborate the top-level harness before fan-out, but nested processes inherit parent markers and must not use them for routing.
 
-| Parent | `claude:*` | `codex:*` | `grok:*` | `devin:*` | `cursor:*` | `antigravity:*` | `opencode:*` |
-|---|---|---|---|---|---|---|---|
-| Claude Code | native `Agent` when a shipped lane covers it, else external runner | external runner | external runner | external runner | external runner | external runner | external runner |
-| Codex | external runner | native `spawn_agent` | external runner | external runner | external runner | external runner | external runner |
+| Parent | `claude:*` | `codex:*` | `grok:*` | `devin:*` | `cursor:*` | `antigravity:*` | `opencode:*` | `muse:*` |
+|---|---|---|---|---|---|---|---|---|
+| Claude Code | native `Agent` when a shipped lane covers it, else external runner | external runner | external runner | external runner | external runner | external runner | external runner | external runner |
+| Codex | external runner | native `spawn_agent` | external runner | external runner | external runner | external runner | external runner | external runner |
 
 `inherit-parent` and `auto` remain aliases. They use the parent's current model and effort through its native subagent primitive. In a panel they still consume one lane, but they reduce provider diversity; say so in the synthesis record.
 
@@ -163,7 +171,7 @@ The launcher lives at `skills/poteto-mode/scripts/runner/pstack-runner` under th
 ```text
 pstack-runner \
   --parent <claude|codex> \
-  --provider <claude|codex|grok|devin|cursor|antigravity|opencode> \
+  --provider <claude|codex|grok|devin|cursor|antigravity|opencode|muse> \
   --model <real CLI model> \
   --effort <low|medium|high|xhigh|max|default> \
   --mode <read-only|isolated-write> \
@@ -323,6 +331,7 @@ Every registered provider implements a typed quota adapter (`scripts/runner/prov
 - OpenCode: no proven quota diagnostic is mapped. All errors remain unknown to the quota classifier. A shared transcript parser detects terminal success; a generic 429 or quota words never authorize fallback.
 - Cursor: a nonzero exit, no successful stdout result envelope, and exactly one stderr `<Class>Error:` frame that is `ActionRequiredError:` whose message begins `You've hit your usage limit` at a separator boundary (end of line, space, or period). Usage-limit, rate-limit, login, payment, and pro-only errors share the ActionRequiredError class, so the class alone is not proof; multiple error frames are contradictory and fail closed, and ANSI styling/CRLF endings are normalized on the frame only. A trusted successful terminal envelope vetoes; errored envelopes carry no proven quota channel. Do not invent structured error codes the CLI does not emit.
 - Antigravity: no canonical terminal quota envelope is proven. Its adapter returns UNKNOWN even for quota-sounding text or HTTP 429; no `usage-exhausted` receipt is emitted until captured protocol evidence supports one. A final `SUCCESS` with a nonempty response and no `denied_actions` still takes precedence over a conflicting exit code so the completed attempt is never replayed.
+- Muse: no canonical terminal quota envelope is proven. Its adapter returns UNKNOWN even for quota-sounding text or HTTP 429; no `usage-exhausted` receipt is emitted until captured protocol evidence supports one. A completed terminal still vetoes replay as a failure.
 
 Diagnostics hidden behind unresolved build constants, entitlement or seat-tier messages, unproven error shapes, and every failure outside these contracts are not quota: they get the normal receipt status and saved-policy handling above, so an authorized broad policy can still recover them while quota-only sheets treat them as terminal. A native lane may classify only an explicit capacity failure from the parent host's structured tool envelope. Never infer exhaustion from model prose, generated output, or a human-readable transcript. Generic 429 or 403 errors, `resource_exhausted`, authentication or model-access failures, task failures, timeouts, malformed output, and unrecognized provider shapes are not exhaustion; cancellations and billing-policy blocks stay terminal `failed` under every policy.
 
@@ -361,6 +370,6 @@ Provider-observed facts (`provenance: "provider"`) do not authorize dispatch. Bi
 
 The runner accepts `--api-spend <deny|approved>` and records it in the receipt. `approved` explicitly authorizes a metered API route. `deny` performs bounded route checks and writes a `billing-policy-blocked` receipt (exit 78, `failurePhase: "preflight"`, `processStarted: false`) when a known API route is present or required subscription-auth evidence cannot be established. Every external attempt from a policy-enabled sheet passes the exact saved value; omission preserves legacy behavior for preexisting providers only on an untouched sheet with no access metadata and no chains. OpenCode has no legacy exemption.
 
-The bounded check covers known environment inputs without printing or persisting their values: nonblank Claude API/auth variables, `OPENAI_API_KEY`, `XAI_API_KEY`, `GROK_CODE_XAI_API_KEY`, `DEVIN_API_KEY`, and `CURSOR_API_KEY`, `DEVIN_API_URL` and `CURSOR_API_ENDPOINT` route overrides, plus enabled Claude Bedrock, Vertex, Foundry, base-URL, and custom-header controls. Claude does not inspect auth-status method/provider fields; its billing route remains unverified. Codex uses the exact known `codex login status` form and gives API evidence precedence over ChatGPT login evidence. Devin and Cursor have environment-guard coverage plus their ordinary account login checks and isolated runner configuration. Grok is blocked under `deny`: its models login banner cannot establish subscription routing because per-model BYOK takes precedence over OAuth. Claude uses an empty settings-source list for invocation under `deny`, preventing user/project/local settings from injecting API credentials; managed policies still apply. Ordinary OpenCode native authentication blocks `deny` and omitted legacy policy before CLI startup because subscription routing is unproven. The explicit ChatGPT subscription mode is defined in [Optional OpenCode models](#optional-opencode-models). The guard reads no credential files and changes no ambient authentication.
+The bounded check covers known environment inputs without printing or persisting their values: nonblank Claude API/auth variables, `OPENAI_API_KEY`, `XAI_API_KEY`, `GROK_CODE_XAI_API_KEY`, `DEVIN_API_KEY`, `CURSOR_API_KEY`, and `META_API_KEY`, `DEVIN_API_URL` and `CURSOR_API_ENDPOINT` route overrides, plus enabled Claude Bedrock, Vertex, Foundry, base-URL, and custom-header controls. Claude does not inspect auth-status method/provider fields; its billing route remains unverified. Codex uses the exact known `codex login status` form and gives API evidence precedence over ChatGPT login evidence. Devin and Cursor have environment-guard coverage plus their ordinary account login checks and isolated runner configuration. Grok is blocked under `deny`: its models login banner cannot establish subscription routing because per-model BYOK takes precedence over OAuth. Claude uses an empty settings-source list for invocation under `deny`, preventing user/project/local settings from injecting API credentials; managed policies still apply. Ordinary OpenCode native authentication blocks `deny` and omitted legacy policy before CLI startup because subscription routing is unproven. The explicit ChatGPT subscription mode is defined in [Optional OpenCode models](#optional-opencode-models). The guard reads no credential files and changes no ambient authentication.
 
 This is a narrow route guard, not a zero-charge promise. Provider-managed on-demand credits or overage can still apply under OAuth, and unsupported authentication arrangements can remain unknown. Use the provider account's billing controls for hard limits.

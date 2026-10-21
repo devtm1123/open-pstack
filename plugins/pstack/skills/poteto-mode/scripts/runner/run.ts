@@ -53,6 +53,7 @@ import type {
 } from "./types.ts";
 import { OutputValidationError, UsageError } from "./types.ts";
 import { devinConfig, devinConfigPath, devinExportDirectory, devinExportPath, devinModel, devinPromptPath, readDevinExport } from "./devin.ts";
+import { museCompletedWithoutModel, musePreflightPassed } from "./muse.ts";
 
 const ERROR_EVIDENCE_LIMIT = 4_000;
 const GROK_PREFLIGHT_RETRY_DELAY_MS = 5_000;
@@ -84,6 +85,12 @@ export interface RunResult {
 
 function evidence(value: string): string {
   return value.trim().slice(0, ERROR_EVIDENCE_LIMIT);
+}
+
+// The Muse probe emits ~15KB of envelope JSON; its verdict (terminal event,
+// usage, stderr reason) is at the end, so classification reads the tail.
+function evidenceTail(value: string): string {
+  return value.trim().slice(-ERROR_EVIDENCE_LIMIT);
 }
 
 function removeIfExists(path: string): void {
@@ -481,23 +488,26 @@ function preflightPassed(provider: Provider, model: string, result: ProcessResul
       return /logged in/i.test(combined) && combined.includes(model);
     case "antigravity":
       return combined.split(/\r?\n/).some((line) => line.trim().split(/\s+/)[0] === model);
+    case "muse":
+      return musePreflightPassed(model, result.stdout, result.stderr);
   }
 }
 
 function successfulPreflightEvidence(provider: Provider, model: string, apiKeyAuth: boolean = false): string {
   if (apiKeyAuth) return "CURSOR_API_KEY supplied; authentication deferred to model execution";
   if (provider === "antigravity") return `model ${model} listed; authentication deferred to execution`;
+  if (provider === "muse") return `authenticated; model ${model} verified in probe usage`;
   return provider === "grok"
     ? `authenticated; model ${model} available`
     : "authenticated";
 }
 
 function unavailableStatus(value: string): ReceiptStatus {
-  if (/not logged in|unauthenticated|authentication|sign in|login required|\b401\b|\bunauthori[sz]ed\b|invalid.{0,12}api.?key|api.?key.{0,20}(invalid|expired)/i.test(value)) {
+  if (/not logged in|unauthenticated|authentication|sign in|login required|missing meta credentials|\b401\b|\bunauthori[sz]ed\b|invalid.{0,12}api.?key|api.?key.{0,20}(invalid|expired)/i.test(value)) {
     return "unauthenticated";
   }
   if (/upgrade to .{0,30}to access this model/i.test(value)) return "unavailable-model";
-  if (/model.{0,40}(not found|unknown|unavailable|unsupported|not supported|invalid)|invalid.{0,20}model/i.test(value)) {
+  if (/model.{0,40}(not found|unknown|unavailable|unsupported|not supported|invalid|does not exist)|invalid.{0,20}model/i.test(value)) {
     return "unavailable-model";
   }
   return "child-failed";
@@ -526,6 +536,7 @@ function preflightFailureStatus(
 ): ReceiptStatus {
   const status = unavailableStatus(value);
   if (status !== "child-failed") return status;
+  if (provider === "muse" && museCompletedWithoutModel(model, value)) return "unavailable-model";
   return (provider === "grok" || provider === "antigravity") && !value.includes(model)
     ? "unavailable-model"
     : "unauthenticated";
@@ -930,7 +941,9 @@ async function executeLane(
     const openCodeConfigNote = `${detectedLabel} configuration preflight failed; supported ${OPENCODE_SUPPORTED_RANGE}, tested ${OPENCODE_TESTED_VERSIONS.join(", ")}; configuration output withheld`;
     let rawPreflightEvidence = versionError ?? (options.provider === "opencode"
       ? openCodeConfigNote
-      : evidence(`${preflightResult.stdout}\n${preflightResult.stderr}`));
+      : options.provider === "muse"
+        ? evidenceTail(`${preflightResult.stdout}\n${preflightResult.stderr}`)
+        : evidence(`${preflightResult.stdout}\n${preflightResult.stderr}`));
     let passed = versionError === null && (options.provider === "opencode"
       ? versionError === null && preflightResult.exitCode === 0 && openCode !== null && openCodePreflightPassed(preflightResult.stdout, openCode)
       : options.provider === "claude"
@@ -1391,11 +1404,11 @@ export async function runLane(
   }
   const deadlineAt = options.timeoutMs === null ? null : started + options.timeoutMs;
   const effectivePromptPath =
-    options.provider === "grok"
+    options.provider === "grok" || options.provider === "muse"
       ? contractPromptPath(options)
       : options.promptPath;
   const invocation = invocationCommand(options, effectivePromptPath);
-  const preflight = preflightCommand(options.provider, options.mode);
+  const preflight = preflightCommand(options.provider, options.mode, undefined, options.model);
   const progress: LaneProgress = {
     executable: null,
     preflight: {
@@ -1456,7 +1469,7 @@ export async function runLane(
           encoding: "utf8", mode: 0o600, flag: "wx",
         });
       }
-      if (options.provider === "grok") {
+      if (options.provider === "grok" || options.provider === "muse") {
         writeFileSync(contractPromptPath(options), prompt, {
           encoding: "utf8", mode: 0o600, flag: "wx",
         });

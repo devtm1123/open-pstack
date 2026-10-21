@@ -151,7 +151,7 @@ export interface PolicyContext {
 }
 
 const ATTEMPT_RE =
-  /^(claude|codex|grok|devin|cursor|antigravity):([A-Za-z0-9][A-Za-z0-9._-]*)@([a-z]+)$/;
+  /^(claude|codex|grok|devin|cursor|antigravity|muse):([A-Za-z0-9][A-Za-z0-9._-]*)@([a-z]+)$/;
 
 const ACCESS_KEY_ORDER = [
   "provider",

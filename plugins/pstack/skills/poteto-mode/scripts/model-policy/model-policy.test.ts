@@ -52,6 +52,16 @@ describe("model sheet parser", () => {
       expect(() => parse(FIRST_RUN.replace(line, `swarm workers: ${descriptor}`))).toThrow(ModelPolicyError);
     }
   });
+  it("accepts Muse descriptors with standard efforts in seats and chains", () => {
+    const line = "swarm workers: grok:grok-4.7@xhigh";
+    const selected = parse(FIRST_RUN.replace(line, "swarm workers: muse:muse-spark-1.3@max"));
+    const row = selected.rows.find((entry) => entry.spec.header === "swarm workers");
+    expect(row?.seats[0].attempts[0]).toEqual({kind:"descriptor",provider:"muse",model:"muse-spark-1.3",effort:"max"});
+    const chained = parse(FIRST_RUN.replace(line, "swarm workers: grok:grok-4.7@xhigh -> muse:muse-wonder-1.0@high"));
+    const seat = chained.rows.find((entry) => entry.spec.header === "swarm workers")?.seats[0];
+    expect(seat?.attempts).toHaveLength(2);
+    expect(seat?.attempts[1]).toEqual({kind:"descriptor",provider:"muse",model:"muse-wonder-1.0",effort:"high"});
+  });
   it("parses a legacy single-attempt sheet with no fallback permission", () => {
     const model = parse(FIRST_RUN);
     expect(model.budget).toBe("unlimited (max)");

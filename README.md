@@ -17,7 +17,7 @@ flowchart LR
 
 To make it work in **your** repo, [configure your models](#1-set-up-the-models), [create a verification skill](#2-add-verification-for-your-repository), then [use poteto-mode for each change](#3-use-poteto-mode). The verification skill includes a **feature map**: what your app does and how to check it. Keep that map current with `maintain-verification-skill` as the app changes. The goal is to catch mistakes through repeatable checks instead of trusting an agent's claim that it is done.
 
-This distribution brings Pstack to **Codex and Claude Code**, with **Anthropic Claude, OpenAI Codex, xAI Grok, Devin, Cursor, Antigravity, and OpenCode** workers. You choose which models handle each role and which backups may take over. See the [provider table](#supported-parent-apps-and-worker-providers).
+This distribution brings Pstack to **Codex and Claude Code**, with **Anthropic Claude, OpenAI Codex, xAI Grok, Devin, Cursor, Antigravity, OpenCode, and Muse** workers. You choose which models handle each role and which backups may take over. See the [provider table](#supported-parent-apps-and-worker-providers).
 
 Arjit Jaiswal maintains this distribution's provider integrations and tested releases while tracking Lauren Tan's original Pstack directly. It builds on Eric Litman's Open Pstack port, with [attribution preserved](NOTICE.md).
 
@@ -31,7 +31,7 @@ Choose based on where you run Pstack and how you want to use your model subscrip
 
 - **Cursor’s original Pstack** is Lauren Tan’s engineering workflow for Cursor. It assigns work to models available inside Cursor. Use it when Cursor is your parent app.
 - **Eric Litman’s Open Pstack** brings those workflows to Codex and Claude Code, with Claude, Codex, and Grok workers. It provides the foundation for this distribution.
-- **This distribution** adds Devin, Cursor, Antigravity, and OpenCode CLI workers, subscription-aware model recommendations, setup that checks only the providers you select, and automatic recovery through your approved backup chains. It tracks Cursor directly and publishes its own tested releases, without waiting for Eric’s port to incorporate changes.
+- **This distribution** adds Devin, Cursor, Antigravity, OpenCode, and Muse CLI workers, subscription-aware model recommendations, setup that checks only the providers you select, and automatic recovery through your approved backup chains. It tracks Cursor directly and publishes its own tested releases, without waiting for Eric’s port to incorporate changes.
 
 Routing follows the role assignments you approve. Setup recommends a mix based on task fit and confirmed access. The saved policy controls which models run and when a backup can take over.
 
@@ -50,6 +50,7 @@ The **parent** is the app where you start a task. It coordinates the work and ke
 | Cursor models | `cursor` | External `cursor-agent` CLI | External `cursor-agent` CLI |
 | Antigravity models | `antigravity` | External `agy` CLI | External `agy` CLI |
 | OpenCode models | `opencode` | External `opencode` CLI | External `opencode` CLI |
+| Muse models | `muse` | External `muse` CLI | External `muse` CLI |
 
 **This distribution supports Codex (`codex`) and Claude Code (`claude`) as parents.** For Cursor as your parent app, use [Cursor's original Pstack](https://github.com/cursor/plugins/tree/main/pstack). Provider availability does not guarantee access to every model: setup checks the exact models you select.
 

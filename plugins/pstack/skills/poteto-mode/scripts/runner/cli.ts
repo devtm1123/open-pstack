@@ -18,7 +18,7 @@ import {
   type WorkerContractMode,
 } from "./types.ts";
 
-const HELP = `Usage: pstack-runner --parent <claude|codex> --provider <claude|codex|grok|devin|cursor|antigravity|opencode> \\
+const HELP = `Usage: pstack-runner --parent <claude|codex> --provider <claude|codex|grok|devin|cursor|antigravity|opencode|muse> \\
   --model <slug> --effort <level> --mode <read-only|isolated-write> \\
   --prompt <file> --cwd <dir> --output <file> --receipt <file> [--timeout <seconds>]
   [--api-spend <deny|approved>] [--contract <legacy|strict>] [--progress <file>]
@@ -33,7 +33,7 @@ when the user or task supplies a real deadline; it is one end-to-end launcher
 deadline shared by setup, preflight, and model execution.
 
 --api-spend deny blocks before execution when a known ambient API credential
-or provider-selection control (for example CURSOR_API_KEY, ANTHROPIC_API_KEY,
+or provider-selection control (for example CURSOR_API_KEY, META_API_KEY, ANTHROPIC_API_KEY,
 ANTHROPIC_AUTH_TOKEN, ANTHROPIC_AWS_API_KEY, or Claude's Bedrock/Vertex/Foundry
 and base-URL routing variables) could take the lane off a subscription-only
 route. Claude skips auth-status because startup refresh can invalidate login;

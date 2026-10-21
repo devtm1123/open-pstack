@@ -1,6 +1,7 @@
 import { openCodeAgent, type OpenCodeContract } from "./opencode.ts";
 import { cursorHasApiKey } from "./cursor.ts";
 import { antigravityLaneFiles } from "./antigravity.ts";
+import { MUSE_PREFLIGHT_PROMPT } from "./muse.ts";
 import type {
   AccessMode,
   Effort,
@@ -68,7 +69,7 @@ export function openCodeVersionProbe(mode: AccessMode): WorkerCommandSpec {
   return { command: "opencode", args: ["--version"], stdin: "none", workerGuidance: workerGuidance("opencode", mode) };
 }
 
-export function preflightCommand(provider: Provider, mode: AccessMode, openCodeContract?: OpenCodeContract): CommandSpec | null {
+export function preflightCommand(provider: Provider, mode: AccessMode, openCodeContract?: OpenCodeContract, model?: string): CommandSpec | null {
   switch (provider) {
     case "opencode":
       return openCodeContract === undefined
@@ -96,6 +97,33 @@ export function preflightCommand(provider: Provider, mode: AccessMode, openCodeC
       return { command: "grok", args: ["models"], stdin: "none" };
     case "antigravity":
       return { command: "agy", args: ["models"], stdin: "none" };
+    case "muse": {
+      // The CLI has no login-status or model-list command, so the preflight
+      // is one tiny model call that must verify the requested model.
+      if (model === undefined) throw new UsageError("muse preflight requires the requested model");
+      return {
+        command: "muse",
+        args: [
+          "exec",
+          "--json",
+          "--provider",
+          "meta",
+          "--model",
+          model,
+          "--reasoning-effort",
+          "minimal",
+          "--disable-write",
+          "--disable-shell",
+          "--disable-web-tools",
+          "--disable-reminders",
+          "--disable-request-user-input",
+          "--no-foreign-personal-context",
+          "--no-session-log",
+          MUSE_PREFLIGHT_PROMPT,
+        ],
+        stdin: "none",
+      };
+    }
   }
 }
 
@@ -149,6 +177,8 @@ function workerGuidance(provider: Provider, mode: AccessMode): string {
         return "- Provider tools: `view_file`, `list_dir`, and `grep_search` are your only tools; no write or command tools are available.";
       case "opencode":
         return "- Provider tools: read, glob, and grep are your only tools; no write or command tools are available.";
+      case "muse":
+        return "- Provider tools: inspect with the CLI's read tools. Writes and shell execution are disabled on this lane.";
     }
   }
   switch (provider) {
@@ -166,6 +196,8 @@ function workerGuidance(provider: Provider, mode: AccessMode): string {
       return "- Provider tools: use file tools for edits and `run_command` for suitable checks in the native sandbox. Prefer foreground commands unless background work is needed; use `manage_task` or native completion to collect exit results. Repair ordinary check failures and rerun. Stop on any denial; never bypass the sandbox, select an external terminal, or alter agent/hooks policy.";
     case "opencode":
       return "- Provider tools: use file tools for edits and the shell tool for suitable checks inside the required sandbox. Use foreground commands. For the V2 shell tool, set timeout 0 unless the task supplies a deadline. For V1 Bash, omit timeout to retain its native default; zero is invalid. Stop on a denied command; never retry unsandboxed or change the configured shell.";
+    case "muse":
+      return "- Provider tools: use the CLI's file tools for edits and shell for suitable checks inside the default sandbox; approval stays on. Stop on a denied command.";
   }
 }
 
@@ -297,6 +329,32 @@ export function invocationCommand(
           "-",
         ],
         stdin: "prompt",
+        workerGuidance: workerGuidance(options.provider, options.mode),
+      };
+    case "muse":
+      return {
+        command: "muse",
+        args: [
+          "exec",
+          "--json",
+          "--provider",
+          "meta",
+          "--model",
+          options.model,
+          "--reasoning-effort",
+          options.effort,
+          "--prompt-file",
+          effectivePromptPath,
+          "--workspace",
+          options.cwd,
+          ...(options.mode === "read-only" ? ["--disable-write", "--disable-shell"] : []),
+          "--disable-web-tools",
+          "--disable-reminders",
+          "--disable-request-user-input",
+          "--no-foreign-personal-context",
+          "--no-session-log",
+        ],
+        stdin: "none",
         workerGuidance: workerGuidance(options.provider, options.mode),
       };
     case "grok":

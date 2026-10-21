@@ -726,6 +726,25 @@ const PROVIDER_CONTRACTS: Readonly<Record<Provider, ProviderContract>> = {
     ],
     terminalSuccess: [outcome({ stdout: JSON.stringify({ event: "result", result: { status: "SUCCESS", response: "done" } }) })],
   },
+  muse: {
+    quotaProof: "none",
+    quota: [],
+    nonquota: [
+      outcome({ stderr: "HTTP 429 Too Many Requests: rate limit exceeded" }),
+      outcome({
+        stdout: JSON.stringify({
+          payload_type: "run.terminal.failed",
+          payload: { terminal: "failed", text: "", reason: "model `muse-spark-1.3` quota exceeded for today" },
+        }),
+      }),
+    ],
+    terminalSuccess: [outcome({
+      stdout: JSON.stringify({
+        payload_type: "run.terminal.completed",
+        payload: { terminal: "completed", text: "done", reason: null },
+      }),
+    })],
+  },
 };
 
 describe("terminal success detection", () => {
@@ -746,6 +765,7 @@ describe("terminal success detection", () => {
       ["devin", outcome({ terminalEnvelope: { type: "result", subtype: "success", is_error: false } })],
       ["cursor", outcome({ stdout: JSON.stringify({ type: "result", subtype: "success", is_error: false, result: "done" }) })],
       ["antigravity", outcome({ stdout: JSON.stringify({ event: "result", result: { status: "SUCCESS", response: "done" } }) })],
+      ["muse", outcome({ stdout: JSON.stringify({ payload_type: "run.terminal.completed", payload: { terminal: "completed", text: "done", reason: null } }) })],
     ] as const) {
       expect(hasTerminalSuccess(provider, input), provider).toBe(true);
     }
@@ -825,6 +845,11 @@ describe("ambient credential and routing takeover guard", () => {
       "GROK_CODE_XAI_API_KEY"
     );
     expect(apiCredentialTakeover("devin", {})).toBeNull();
+    expect(apiCredentialTakeover("muse", { META_API_KEY: "secret" })).toBe(
+      "META_API_KEY"
+    );
+    expect(apiCredentialTakeover("muse", { META_API_KEY: "   " })).toBeNull();
+    expect(apiCredentialTakeover("muse", { OPENAI_API_KEY: "secret" })).toBeNull();
   });
 
   it("guards both Antigravity gateway route families without leaking values", () => {
@@ -883,8 +908,8 @@ describe("subscription auth evidence", () => {
     ).toBe(false);
   });
 
-  it("reports no separate auth-method evidence for Claude, Devin, Cursor, and Antigravity", () => {
-    for (const provider of ["claude", "devin", "cursor", "antigravity"] as const) {
+  it("reports no separate auth-method evidence for Claude, Devin, Cursor, Antigravity, and Muse", () => {
+    for (const provider of ["claude", "devin", "cursor", "antigravity", "muse"] as const) {
       expect(subscriptionAuthEvidence(provider, "Logged in", "")).toBeNull();
     }
   });

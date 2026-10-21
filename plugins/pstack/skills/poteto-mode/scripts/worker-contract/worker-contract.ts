@@ -64,6 +64,8 @@ const STRICT_REASONS: Readonly<Record<Provider, string>> = {
     "Antigravity file-only tool gating is a tool-surface limit, not a verified OS boundary",
   opencode:
     "OpenCode tool permissions are not an OS sandbox",
+  muse:
+    "Muse approval and sandbox settings are application checks without a verified OS boundary for Git metadata and remote mutation",
 };
 
 // No current route has live evidence for every required boundary. A CLI help

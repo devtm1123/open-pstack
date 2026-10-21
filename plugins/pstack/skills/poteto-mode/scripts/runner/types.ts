@@ -1,5 +1,5 @@
 export const PARENTS = ["claude", "codex"] as const;
-export const PROVIDERS = ["claude", "codex", "grok", "devin", "cursor", "antigravity", "opencode"] as const;
+export const PROVIDERS = ["claude", "codex", "grok", "devin", "cursor", "antigravity", "opencode", "muse"] as const;
 export const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
 export const ACCESS_MODES = ["read-only", "isolated-write"] as const;
 export const WORKER_CONTRACT_MODES = ["legacy", "strict"] as const;

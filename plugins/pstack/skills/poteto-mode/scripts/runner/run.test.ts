@@ -33,7 +33,8 @@ const isPreflight =
   (name === "grok" && args[0] === "models") ||
   (name === "devin" && args[0] === "auth") ||
   (name === "cursor-agent" && (args[0] === "status" || args[0] === "--version")) ||
-  (name === "agy" && args[0] === "models");
+  (name === "agy" && args[0] === "models") ||
+  (name === "muse" && args.includes("Reply with exactly: OK"));
 if (name === "claude" && !isPreflight && process.env.CLAUDECODE) {
   console.error("Claude cannot launch inside an existing Claude session.");
   process.exit(1);
@@ -147,6 +148,34 @@ const model = modelIndex >= 0 ? args[modelIndex + 1] : "unknown";
 if (name === "agy" && args[0] === "models") {
   console.log(process.env.FAKE_AGY_MODELS ?? "gemini-3.1-pro-high\\tfixture listing");
   process.exit(Number(process.env.FAKE_PREFLIGHT_EXIT ?? "0"));
+}
+if (name === "muse" && args[0] === "exec") {
+  const museEvent = (payload_type, payload) => JSON.stringify({ stream: { kind: "session", id: "muse-session" }, payload_type, payload });
+  const museUsage = (models) => museEvent("run.usage", { models });
+  const museTerminal = (status, text, reason) => museEvent("run.terminal." + status, { terminal: status, text, reason });
+  const museEntry = (modelName) => ({ model: modelName, input_tokens: 10, cached_tokens: 0, output_tokens: 2, reasoning_tokens: 1 });
+  const pad = "\\n".repeat(5000);
+  const noise = "x".repeat(5000) + "\\n";
+  if (isPreflight) {
+    const fixture = process.env.FAKE_MUSE_PREFLIGHT ?? "verified";
+    if (fixture === "no-auth") {
+      console.error("missing meta credentials: run \`muse login\` or set META_API_KEY");
+      process.exit(1);
+    }
+    if (fixture === "unknown-model") {
+      process.stdout.write(noise + museTerminal("failed", "", "model \`" + model + "\` does not exist or you lack access") + "\\n");
+      console.error("run ended with Failed: model \`" + model + "\` does not exist or you lack access");
+      process.exit(1);
+    }
+    if (fixture === "fallback") {
+      process.stdout.write(noise + museUsage([]) + "\\n" + museTerminal("completed", "Hi — how can I help?", null) + "\\n");
+      process.exit(0);
+    }
+    process.stdout.write(pad + museUsage([museEntry(model)]) + "\\n" + museTerminal("completed", "OK", null) + "\\n");
+    process.exit(0);
+  }
+  process.stdout.write(museUsage([museEntry(model)]) + "\\n" + museTerminal("completed", "MUSE LANE OK", null) + "\\n");
+  process.exit(0);
 }
 const reportedModel = process.env.FAKE_CLAUDE_REPORTED_MODEL ?? (model === "fable"
   ? "claude-fable-9-9"
@@ -360,7 +389,7 @@ beforeEach(() => {
   bin = join(scratch, "bin");
   mkdirSync(bin);
   writeFileSync(join(scratch, "prompt.md"), "Return the marker.");
-  for (const name of ["claude", "codex", "grok", "devin", "cursor-agent", "agy"]) makeExecutable(name);
+  for (const name of ["claude", "codex", "grok", "devin", "cursor-agent", "agy", "muse"]) makeExecutable(name);
   previousPath = process.env.PATH;
   process.env.PATH = `${bin}:${dirname(process.execPath)}:${previousPath ?? ""}`;
   delete process.env.FAKE_NETWORK_TEST_URL;
@@ -398,6 +427,7 @@ beforeEach(() => {
   delete process.env.FAKE_QUOTA_WORDS_STDERR;
   delete process.env.FAKE_CLAUDE_REPORTED_MODEL;
   delete process.env.FAKE_CODEX_LOGIN_STATUS;
+  delete process.env.FAKE_MUSE_PREFLIGHT;
   delete process.env.FAKE_CODEX_TURN_FAILED;
   delete process.env.FAKE_CODEX_TURN_FAILED_EXIT;
   delete process.env.FAKE_CODEX_AGENT_MESSAGE;
@@ -473,6 +503,7 @@ afterEach(() => {
   delete process.env.FAKE_QUOTA_WORDS_STDERR;
   delete process.env.FAKE_CLAUDE_REPORTED_MODEL;
   delete process.env.FAKE_CODEX_LOGIN_STATUS;
+  delete process.env.FAKE_MUSE_PREFLIGHT;
   delete process.env.FAKE_CODEX_TURN_FAILED;
   delete process.env.FAKE_CODEX_TURN_FAILED_EXIT;
   delete process.env.FAKE_CODEX_AGENT_MESSAGE;
@@ -590,6 +621,52 @@ describe("runLane", () => {
           : "pinned-argv",
       });
     }
+  });
+
+  it("completes a verified Muse lane with provider-report proof", async () => {
+    const input = { ...options("muse", "muse-verified"), model: "muse-spark-1.3", effort: "low" as const };
+    expect((await runLane(input)).exitCode).toBe(0);
+    expect(receipt(input.receiptPath)).toMatchObject({
+      status: "complete",
+      provider: "muse",
+      model: "muse-spark-1.3",
+      reportedModel: "muse-spark-1.3",
+      modelVerified: true,
+      modelEvidence: "provider-report",
+      preflight: { status: "passed" },
+    });
+    expect(receipt(input.receiptPath).preflight.evidence).toContain("verified in probe usage");
+    expect(readFileSync(input.outputPath, "utf8")).toContain("MUSE LANE OK");
+  });
+
+  it("classifies a long unknown-model Muse probe as unavailable-model", async () => {
+    process.env.FAKE_MUSE_PREFLIGHT = "unknown-model";
+    const input = { ...options("muse", "muse-unknown"), model: "nope-nope-1.0", effort: "low" as const };
+    expect((await runLane(input)).exitCode).toBe(69);
+    expect(receipt(input.receiptPath)).toMatchObject({
+      status: "unavailable-model",
+      preflight: { status: "failed" },
+    });
+  });
+
+  it("classifies the silent Muse unknown-model fallback as unavailable-model", async () => {
+    process.env.FAKE_MUSE_PREFLIGHT = "fallback";
+    const input = { ...options("muse", "muse-fallback"), model: "nope-nope-1.0", effort: "low" as const };
+    expect((await runLane(input)).exitCode).toBe(69);
+    expect(receipt(input.receiptPath)).toMatchObject({
+      status: "unavailable-model",
+      preflight: { status: "failed" },
+    });
+  });
+
+  it("classifies missing Muse credentials as unauthenticated", async () => {
+    process.env.FAKE_MUSE_PREFLIGHT = "no-auth";
+    const input = { ...options("muse", "muse-noauth"), model: "muse-spark-1.3", effort: "low" as const };
+    expect((await runLane(input)).exitCode).toBe(77);
+    expect(receipt(input.receiptPath)).toMatchObject({
+      status: "unauthenticated",
+      preflight: { status: "failed" },
+    });
   });
 
   it("keeps unproven invocation model wording as an ordinary child failure", async () => {
